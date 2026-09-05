@@ -1,14 +1,13 @@
 ---
 name: plain-english-playwright
-# Keep this description specific so Claude can select the skill for web automation generation.
-description: Convert plain-English web test steps and a target webpage into maintainable Python Playwright automation using explicit SDET reasoning for locators, synchronization, assertions, ambiguity, dynamic data, and validation.
+description: Convert plain-English web test steps and a target webpage into maintainable Python Playwright automation using explicit SDET reasoning for locators, synchronization, assertions, ambiguity, dynamic data, failure diagnosis, and validation.
 ---
 
 # Plain-English Playwright Automation Skill
 
 ## Purpose
 
-Convert a user's plain-English web test steps plus a target webpage/flow into working Python Playwright automation. The skill is not a click-translator: it applies explicit SDET reasoning before producing code.
+Convert a user's plain-English web test steps plus a target webpage or flow into working Python Playwright automation. The Skill is not a click-translator: it applies explicit SDET reasoning before producing code.
 
 ## Required inputs
 
@@ -80,7 +79,31 @@ Avoid:
 - arbitrary positional assumptions
 - hardcoded selectors invented without evidence
 
-If the application provides an explicit `data-test` or similar test contract, it may be preferable to a brittle CSS path. This is especially useful for icon-only controls whose accessible role has no reliable accessible name (for example, a shopping-cart link represented only by an icon/badge). Document the reason.
+If the application provides an explicit `data-test` or similar test contract, it may be preferable to a brittle CSS path. This is especially useful for icon-only controls whose accessible role has no reliable accessible name. Document the reason.
+
+### Locator verification gate
+
+Do not assume that a selector exists merely because it is a common convention, appears in an example, or looks plausible.
+
+Before treating a locator as verified:
+
+1. Prefer inspecting the actual target page, DOM, or accessibility tree when the environment provides browser/page-inspection capabilities.
+2. Confirm that the proposed selector matches at least one intended element.
+3. For repeated elements, confirm that the locator resolves to the intended component rather than an arbitrary match.
+4. Prefer selectors that are both stable and actually observed on the target application.
+5. Never invent a `data-testid`, `data-test`, ARIA label, role/name, ID, or CSS class.
+6. If the target page cannot be inspected, label selectors as assumptions and avoid claiming that they were verified.
+7. If execution reveals that a locator does not resolve, diagnose the actual DOM/locator mismatch before changing unrelated parts of the test.
+
+A selector that is theoretically stable but does not exist on the target page is not a valid locator.
+
+Use these confidence labels when useful:
+
+- **verified locator** — supported by actual DOM/accessibility/page evidence or successful execution evidence.
+- **inferred locator** — reasonable but not directly verified.
+- **failed locator** — disproven by execution or inspection.
+
+Never describe an inferred or failed locator as verified.
 
 ## Step 3 — Synchronization
 
@@ -118,6 +141,8 @@ Examples:
 
 Do not replace a dynamic requirement with a hardcoded item merely because a known demo dataset currently has a predictable answer.
 
+When UI behavior and business-data computation are both part of the requirement, keep them conceptually separate. For example, if the user asks to sort low-to-high and then choose the cheapest product, exercise the sort control as requested while independently deriving the minimum from rendered data when that provides a stronger assertion.
+
 ## Step 6 — Code generation
 
 Generate complete executable Python using Playwright's synchronous API unless the user explicitly requests async.
@@ -126,16 +151,18 @@ Use pytest when the output is a test case.
 
 Prefer a simple, readable test over a framework-heavy abstraction. Do not create page objects, factories, dependency injection, or utilities unless repeated behavior genuinely justifies them.
 
-Use constants for stable test data such as the target URL and demo credentials. Do not commit real secrets.
+Use constants for stable test data such as the target URL and public demo credentials. Do not commit real secrets.
+
+Generated code should be deterministic and reproducible. Avoid unnecessary complexity that does not contribute to the requested test behavior.
 
 ## Step 7 — Validation mindset
 
-Treat generated code as a candidate, not as proof of correctness.
-
 Before presenting the final answer, review:
 
-- Does every selector correspond to a plausible element?
+- Does every selector correspond to an element that actually exists or has been clearly identified from available page information?
+- Was each important locator selected from observed evidence rather than invented from convention?
 - Is any selector unnecessarily brittle?
+- Are repeated components scoped to the correct item?
 - Are dynamic states synchronized?
 - Are assertions meaningful?
 - Is the test deterministic?
@@ -144,7 +171,21 @@ Before presenting the final answer, review:
 - Is any information hallucinated?
 - Can another engineer reproduce the test?
 
-If execution tools are available, run the test. If it fails, diagnose the root cause, correct the code, and rerun it. Never report a test as passing without execution evidence.
+If execution tools are available, execute the generated test against the target environment.
+
+Treat an execution failure as evidence that requires diagnosis, not as a reason to blindly generate another selector.
+
+When a locator fails:
+
+1. Capture the failing selector and error.
+2. Determine whether the element exists under another stable selector.
+3. Inspect the relevant DOM/accessibility information when available.
+4. Replace only the incorrect assumption.
+5. Rerun the affected test.
+6. Record the failure and correction when it provides useful evidence about the application's structure.
+7. Do not claim success until the corrected test actually passes.
+
+Never report a test as passing without execution evidence.
 
 ## Step 8 — Failure handling
 
@@ -155,9 +196,43 @@ When a locator or behavior cannot be verified:
 3. Use available page/DOM/accessibility information if provided.
 4. Ask for clarification only if the missing information blocks reliable generation.
 
+When generated automation fails during execution:
+
+1. Treat the failure as a validation result.
+2. Identify the exact failing action, locator, or assertion.
+3. Determine whether the failure is caused by:
+   - an incorrect locator
+   - incorrect synchronization
+   - an incorrect assumption about application behavior
+   - incorrect test data
+   - an incorrect assertion
+   - an environment/setup problem
+4. Inspect the relevant page state when possible.
+5. Make the smallest justified correction.
+6. Rerun the affected test.
+7. Preserve the original failure as useful evidence when discussing limitations or Skill improvements.
+
+Never hide a generated-code failure by silently changing unrelated test logic.
+
+## Step 9 — Static review before execution
+
+Before running generated code, perform a lightweight static review for common automation-quality problems:
+
+- arbitrary sleeps
+- absolute XPath or brittle positional selectors
+- missing assertions
+- hardcoded answers to dynamic requirements
+- accidental real credentials or secrets
+- selectors that were invented without evidence
+- syntax/import problems visible from inspection
+
+Static validation supplements browser execution; it does not replace it.
+
 ## Security and scope
 
 Use only intended test environments. Do not perform real purchases, destructive account actions, credential harvesting, or access to private data. Never hardcode or expose real secrets supplied for unrelated systems.
+
+Public demo credentials may be represented as constants when they are intentionally published for the test application, but real environment credentials should come from secure configuration or secret management.
 
 ## Output quality bar
 
@@ -169,7 +244,8 @@ The final automation should be:
 - maintainable
 - assertion-driven
 - synchronized correctly
-- based on stable locators
+- based on stable, evidence-supported locators
 - honest about uncertainty
+- reproducible by another engineer
 
 The goal is to encode the reasoning of a good SDET, not merely to translate English sentences into browser commands.
